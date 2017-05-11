@@ -1,13 +1,15 @@
 #!/usr/bin/env python
+# coding=utf-8
 
 import math
 import sys
 
+
 def length_of_segment(index_pair):
     return math.fabs(index_pair[1] - index_pair[0]) + 1
 
-class Gene:
 
+class Gene(object):
     def __init__(self, seq_name, source, indices, strand, identifier, name="", annotations=None, score=None, derives_from=None):
         self.seq_name = seq_name
         self.source = source
@@ -19,11 +21,8 @@ class Gene:
         self.mrnas = []
         self.removed_mrnas = []
         self.pseudo = False
+        self.annotations = {} if annotations is None else annotations
         self.derives_from = derives_from
-        if not annotations:
-            self.annotations = {}
-        else:
-            self.annotations = annotations
         self.death_flagged = False
 
     def __str__(self):
@@ -54,7 +53,7 @@ class Gene:
             self.mrnas.remove(to_remove)
             self.removed_mrnas.append(to_remove)
             return True
-        return False # Return false if mrna wasn't removed
+        return False  # Return false if mrna wasn't removed
 
     def remove_mrnas_from_list(self, bad_mrnas):
         to_remove = []
@@ -137,10 +136,7 @@ class Gene:
 
         If no score is present, returns '.' (the default .gff value).
         """
-        if self.score:
-            return self.score
-        else:
-            return '.'
+        return self.score or '.'
 
     def get_longest_exon(self):
         """Returns length of longest exon contained on gene."""
@@ -158,9 +154,9 @@ class Gene:
             length = mrna.get_shortest_exon()
             if length == 0:
                 continue
-            if shortest == None or length < shortest:
+            if shortest is None or length < shortest:
                 shortest = length
-        if shortest == None:
+        if shortest is None:
             return 0
         return shortest
 
@@ -194,9 +190,9 @@ class Gene:
             length = mrna.get_shortest_intron()
             if length == 0:
                 continue
-            if shortest == None or length < shortest:
+            if shortest is None or length < shortest:
                 shortest = length
-        if shortest == None:
+        if shortest is None:
             return 0
         return shortest
 

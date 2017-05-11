@@ -1,4 +1,5 @@
 #!/usr/bin/env python
+# coding=utf-8
 # vim: tabstop=8 expandtab shiftwidth=4 softtabstop=4
 
 import os
@@ -8,8 +9,37 @@ from src.gff_reader import GFFReader
 from src.filter_manager import FilterManager
 from src.stats_manager import StatsManager
 
-class Controller:
 
+def read_annotation_file(io_buffer):
+    annos = []
+    for line in io_buffer:
+        splitline = line.strip().split('\t')
+        if len(splitline) != 3:
+            return []
+        else:
+            annos.append(splitline)
+    return annos
+
+
+def read_bed_file(io_buffer):
+    trimlist = []
+    for line in io_buffer:
+        splitline = line.strip().split('\t')
+        if len(splitline) != 3:
+            return []
+        else:
+            try:
+                entry = [splitline[0], int(splitline[1]), int(splitline[2])]
+            except ValueError:
+                sys.stderr.write("Error reading .bed file. Non-integer value ")
+                sys.stderr.write("in column 2 or 3. Here is the line:\n")
+                sys.stderr.write(line)
+                return []
+            trimlist.append(entry)
+    return trimlist
+
+
+class Controller(object):
     def __init__(self):
         self.seqs = []
         self.removed_features = []
@@ -143,6 +173,7 @@ class Controller:
         gff = open(out_dir + '/genome.gff', 'w')
         tbl = open(out_dir + '/genome.tbl', 'w')
         proteins = open(out_dir + '/genome.proteins.fasta', 'w')
+        mrna = open(out_dir + '/genome.mrna.fasta', 'w')
         removed = open(out_dir + '/genome.removed.gff', 'w')
         stats_file = open(out_dir + '/genome.stats', 'w')
 
@@ -170,12 +201,15 @@ class Controller:
         sys.stderr.write("Writing gff, tbl and fasta to " + out_dir + "/ ...\n")
         gff.write("##gff-version 3\n")
         for seq in self.seqs:
+            if seq.is_empty():
+                continue
             fasta.write(seq.to_fasta())
             gff.write(seq.to_gff())
             if not args.skip_empty_scaffolds or len(seq.genes) > 0:
                 # Possibly skip empty sequences
                 tbl.write(seq.to_tbl(gc_tag=gc_tag, ref_qual=ref_qual, txid_format=txid_format))
             proteins.write(seq.to_protein_fasta())
+            mrna.write(seq.to_mrna_fasta())
 
         # Write removed.gff
         for feature in self.removed_features:
@@ -197,7 +231,7 @@ class Controller:
         if not os.path.isfile(filename):
             sys.stderr.write("Error: " + filename + " is not a file. Nothing trimmed.\n")
             return
-        trimlist = self.read_bed_file(open(filename, 'rb'))
+        trimlist = read_bed_file(open(filename, 'rb'))
         if not trimlist:
             sys.stderr.write("Failed to read .bed file; nothing trimmed.\n")
             return
@@ -208,7 +242,7 @@ class Controller:
         if not os.path.isfile(filename):
             sys.stderr.write("Error: " + filename + " is not a file. Nothing annotated.\n")
             return
-        annos = self.read_annotation_file(open(filename, 'rb'))
+        annos = read_annotation_file(open(filename, 'rb'))
         if not annos:
             sys.stderr.write("Failed to read annotations from " + filename + "; no annotations added.\n")
             return
@@ -222,7 +256,7 @@ class Controller:
             # In the case that there are multiple regions to trim in a single
             # sequence, trim from the end so indices don't get messed up
             to_trim_this_seq = [x for x in trimlist if x[0] == seq.header]
-            to_trim_this_seq = sorted(to_trim_this_seq, key=lambda entry: entry[2], reverse=True)
+            to_trim_this_seq = sorted(to_trim_this_seq, key=lambda _entry: _entry[2], reverse=True)
             for entry in to_trim_this_seq:
                 removed_genes = seq.trim_region(entry[1], entry[2])
                 self.removed_features.extend(removed_genes)
@@ -247,7 +281,7 @@ class Controller:
         for seq in self.seqs:
             seq.create_starts_and_stops()
 
-## Reading in files
+        # Reading in files
 
     def read_fasta(self, line):
         reader = FastaReader()
@@ -312,7 +346,7 @@ class Controller:
 
     def stats(self):
         if not self.seqs:
-            return self.no_genome_message
+            return "error: no sequences"
         else:
             number_of_gagflags = 0
             # TODO have stats mgr handle "number of sequences"
@@ -325,7 +359,7 @@ class Controller:
             last_line = "(" + str(number_of_gagflags) + " features flagged)\n"
             return first_line + self.stats_mgr.summary() + last_line
 
-## Utility methods
+        # Utility methods
 
     def add_gene(self, gene):
         for seq in self.seqs:

@@ -1,4 +1,5 @@
 #!/usr/bin/env python
+# coding=utf-8
 
 import sys
 import copy
@@ -8,8 +9,50 @@ from src.exon import Exon
 from src.xrna import XRNA
 from src.gene import Gene
 
-class GFFReader:
 
+def has_multiple_parents(attr):
+    split_attr = attr.split(";")
+    for attr in split_attr:
+        if "Parent" in attr:
+            parent_id_field = attr.split("=")[1]
+            if "," in parent_id_field:
+                return True
+    return False
+
+
+def remove_parent_info_from_attr(fields):
+    result = []
+    for field in fields:
+        if "Parent" not in field:
+            result.append(field)
+    return result
+
+
+def get_parents_from_list_of_attributes(fields):
+    """Returns a list of parent ids from a list of column 9 entries."""
+    for field in fields:
+        if "Parent" in field:
+            return field.split("=")[1].split(",")
+
+
+def split_multi_parent_line(fields):
+    """Returns a list of lines, one for each parent in a multiparent line."""
+    split_attr = fields[8].split(";")
+    parents = get_parents_from_list_of_attributes(split_attr)
+    attr_without_parents = remove_parent_info_from_attr(split_attr)
+    all_lines = []
+    # import pdb; pdb.set_trace()
+    for parent in parents:
+        line = fields[:8]
+        new_attr_list = copy.deepcopy(attr_without_parents)
+        new_attr_list.append("Parent=" + parent)
+        new_attr_string = ";".join(new_attr_list)
+        line.append(new_attr_string)
+        all_lines.append(line)
+    return all_lines
+
+
+class GFFReader(object):
     def __init__(self):
         self.genes = {}
         self.mrnas = {}
@@ -17,49 +60,21 @@ class GFFReader:
         self.orphans = []
         self.skipped_features = 0
 
-    def get_parents_from_list_of_attributes(self, fields):
-        """Returns a list of parent ids from a list of column 9 entries."""
-        for field in fields:
-            if "Parent" in field:
-                return field.split("=")[1].split(",")
-
-    def remove_parent_info_from_attr(self, fields):
-        result = []
-        for field in fields:
-            if "Parent" not in field:
-                result.append(field)
-        return result
-
-    def split_multi_parent_line(self, fields):
-        """Returns a list of lines, one for each parent in a multiparent line."""
-        split_attr = fields[8].split(";")
-        parents = self.get_parents_from_list_of_attributes(split_attr)
-        attr_without_parents = self.remove_parent_info_from_attr(split_attr)
-        all_lines = []
-        #import pdb; pdb.set_trace()
-        for parent in parents:
-            line = fields[:8]
-            new_attr_list = copy.deepcopy(attr_without_parents)
-            new_attr_list.append("Parent=" + parent)
-            new_attr_string = ";".join(new_attr_list)
-            line.append(new_attr_string)
-            all_lines.append(line)
-        return all_lines
-
-    def validate_line(self, line):
+    @staticmethod
+    def validate_line(line):
         """Returns list of lists of fields if valid, empty list if not.
 
         List of lists of fields -- because lines with multiple parents
         are split into multiple lines."""
         splitline = line.split('\t')
         if len(splitline) is not 9:
-            print("not enough columns" + " ::: " + line)
+            print("not enough columns:" + line)
             return []
         if not "ID" in splitline[8]:
-            print("No ID" + " ::: " + line)
+            print("No ID:" + line)
             return []
         if not int(splitline[3]) <= int(splitline[4]):
-            print("stop greater than start" + " ::: " + line)
+            print("stop greater than start:" + line)
             return []
         # Special case: mature miRNA and uORF have "Derives_from" relationship
         if splitline[2] in ("uORF", "miRNA") and "Derives_from" in splitline[8]:
@@ -70,28 +85,21 @@ class GFFReader:
         # Everything except genes must have parent id
         elif not "Parent" in splitline[8] and \
            not (splitline[2] in ("gene", "pseudogene", "transposable_element_gene")):
-            print("no parent" + " ::: " + line)
+            print("no parent:" + line)
             return []
-        if self.has_multiple_parents(splitline[8]):
-            splitlines = self.split_multi_parent_line(splitline)
+        if has_multiple_parents(splitline[8]):
+            splitlines = split_multi_parent_line(splitline)
             return splitlines
         else:
             return [splitline]
 
-    def has_multiple_parents(self, attr):
-        split_attr = attr.split(";")
-        for attr in split_attr:
-            if "Parent" in attr:
-                parent_id_field = attr.split("=")[1]
-                if "," in parent_id_field:
-                    return True
-        return False
-
-    def line_type(self, line):
+    @staticmethod
+    def line_type(line):
         """Returns type of feature, as denoted by 3rd field in list."""
         return line[2]
 
-    def parse_attributes(self, attr, ftype=""):
+    @staticmethod
+    def parse_attributes(attr, ftype=""):
         """Returns a dict with id, name and parent_id (if present)
 
         If not, returns empty dict
@@ -116,19 +124,22 @@ class GFFReader:
             elif key == "Derives_from":
                 result['derives_from'] = value
             elif (key == "Dbxref" or
-                    key == "Ontology_term" or
-                    key == "product"):
+                  key == "Ontology_term" or
+                  key == "product"):
                 if key in annotations.keys():
                     # allow for annotations in the style of "Dbxref=PFAM:foo,PRINTS:bar"
                     annotations[key].extend(value.split(','))
                 else:
-                    annotations[key] = value.split(',') # always a list :)
+                    annotations[key] = value.split(',')  # always a list :)
         # Make sure we found an ID
         if "identifier" not in result:
             return {}
         # Add annotations if we found any
         if annotations:
             result["annotations"] = annotations
+        # Delete gene name if it is the same as the ID
+        if 'name' in result and result['identifier'] == result['name']:
+            del result['name']
         # Extract parent_id from derives_from identifier
         if not ftype.endswith("gene") and 'parent_id' not in result and 'derives_from' in result:
             result['parent_id'] = result['derives_from'].split(".")[0]
@@ -136,17 +147,14 @@ class GFFReader:
 
     def extract_cds_args(self, line):
         """Pulls CDS arguments from a gff line and returns them in a dictionary."""
-        result = {'indices': [int(line[3]), int(line[4])], \
-                'strand': line[6], 'phase': int(line[7])}
+        result = {'indices': [int(line[3]), int(line[4])],
+                  'strand': line[6], 'phase': int(line[7])}
         if isinstance(line[7], float):
             result['score'] = line[7]
         attribs = self.parse_attributes(line[8], ftype=line[2])
 
         if not attribs:
             return None
-
-        if 'name' in attribs:
-            del attribs['name']
 
         if "annotations" in attribs:
             del attribs["annotations"]
@@ -163,9 +171,6 @@ class GFFReader:
 
         if not attribs:
             return None
-
-        if 'name' in attribs:
-            del attribs['name']
 
         if "annotations" in attribs:
             del attribs["annotations"]
@@ -190,7 +195,7 @@ class GFFReader:
 
     def extract_gene_args(self, line):
         """Pulls Gene arguments from a gff line and returns them in a dictionary."""
-        result = {'seq_name': line[0], 'source': line[1], \
+        result = {'seq_name': line[0], 'source': line[1],
                   'indices': [int(line[3]), int(line[4])], 'strand': line[6]}
         attribs = self.parse_attributes(line[8], ftype=line[2])
 
@@ -207,9 +212,6 @@ class GFFReader:
 
         if not attribs:
             return None
-
-        if 'name' in attribs:
-            del attribs['name']
 
         if "annotations" in attribs:
             del attribs["annotations"]
@@ -293,6 +295,7 @@ class GFFReader:
         if not kwargs:
             return
         gene_id = kwargs['identifier']
+        # noinspection PyArgumentList
         gene = Gene(**kwargs)
         if gene_type in ('pseudogene', 'transposable_element_gene'):
             gene.pseudo = True
@@ -306,6 +309,7 @@ class GFFReader:
         kwargs["rna_type"] = rna_type
         kwargs["ncrna_class"] = ncrna_class
         mrna_id = kwargs['identifier']
+        # noinspection PyArgumentList
         self.mrnas[mrna_id] = XRNA(**kwargs)
 
     def process_cds_line(self, line):
@@ -321,6 +325,7 @@ class GFFReader:
         if parent_mrna.cds:
             self.update_cds(line, parent_mrna.cds)
         else:
+            # noinspection PyArgumentList
             parent_mrna.cds = CDS(**kwargs)
 
     def process_exon_line(self, line):
@@ -336,6 +341,7 @@ class GFFReader:
         if parent_mrna.exon:
             self.update_exon(line, parent_mrna.exon)
         else:
+            # noinspection PyArgumentList
             parent_mrna.exon = Exon(**kwargs)
 
     def process_other_feature_line(self, line):
@@ -348,6 +354,7 @@ class GFFReader:
             self.orphans.append(line)
             return
         parent_mrna = self.mrnas[parent_id]
+        # noinspection PyArgumentList
         parent_mrna.other_features.append(GenePart(**kwargs))
 
     def process_non_gene_feature_line(self, line, feat_type):
@@ -403,5 +410,5 @@ class GFFReader:
                 parent_gene.mrnas.append(mrna)
 
         if self.skipped_features > 0:
-            sys.stderr.write("Warning: skipped "+str(self.skipped_features)+" uninteresting features.\n")
+            sys.stderr.write("Warning: skipped " + str(self.skipped_features) + " uninteresting features.\n")
         return self.genes.values(), self.non_genes, comments, invalid, ignored

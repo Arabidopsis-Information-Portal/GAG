@@ -1,16 +1,19 @@
 #!/usr/bin/env python
+# coding=utf-8
 
 import math
 import re
 from src.gene_part import GenePart
 import src.translator as translate
 
+
 def length_of_segment(index_pair):
     return math.fabs(index_pair[1] - index_pair[0]) + 1
 
-class XRNA:
 
-    def __init__(self, identifier, indices, parent_id=None, source='', seq_name='', strand='+', annotations=None, rna_type="mRNA", ncrna_class=None, derives_from=None):
+class XRNA(object):
+    def __init__(self, identifier, indices, parent_id, source='', seq_name='', name='', strand='+',
+                 annotations=None, rna_type="mRNA", ncrna_class=None, derives_from=None):
         self.rna_type = rna_type
         self.ncrna_class = ncrna_class
         self.derives_from = derives_from
@@ -21,19 +24,18 @@ class XRNA:
         self.exon = None
         self.cds = None
         self.other_features = []
-        self.annotations = {}
-        if annotations:
-            self.annotations = annotations
+        self.annotations = {} if annotations is None else annotations
+        self.death_flagged = False
         self.source = source
         self.seq_name = seq_name
-        self.death_flagged = False
+        self.name = name
 
     def __str__(self):
         """Returns string representation of the RNA.
 
         String contains the RNA's identifier and the number of features it contains.
         """
-        result = self.rna_type+" (ID=" + str(self.identifier) + ") containing "
+        result = self.rna_type + " (ID=" + str(self.identifier) + ") containing "
         if self.exon:
             result += "Exon, "
         if self.cds:
@@ -134,10 +136,10 @@ class XRNA:
         self_start = self.indices[0]
         self_end = self.indices[1]
         # mrna contains beginning of indices
-        if self_start <= begin and self_end >= begin:
+        if self_start <= begin <= self_end:
             return True
         # mrna contains end of indices
-        elif self_start <= end and self_end >= end:
+        elif self_start <= end <= self_end:
             return True
         # indices contain entire mrna
         elif begin <= self_start and end >= self_end:
@@ -154,16 +156,16 @@ class XRNA:
         # TODO figure out naming scheme...
         start_id = self.identifier + ":start"
         start_parent_id = self.identifier
-        start = GenePart(feature_type='start_codon', identifier=start_id, \
-                indices=indices, parent_id=start_parent_id, strand=self.strand)
+        start = GenePart(feature_type='start_codon', identifier=start_id,
+                         indices=indices, parent_id=start_parent_id, strand=self.strand)
         self.add_other_feature(start)
 
     def add_stop_codon(self, indices):
         """Adds a stop_codon GenePart to MRNA.other_features"""
         stop_id = self.identifier + ":stop"
         stop_parent_id = self.identifier
-        stop = GenePart(feature_type='stop_codon', identifier=stop_id, \
-                indices=indices, parent_id=stop_parent_id, strand=self.strand)
+        stop = GenePart(feature_type='stop_codon', identifier=stop_id,
+                        indices=indices, parent_id=stop_parent_id, strand=self.strand)
         self.add_other_feature(stop)
 
     def has_start(self):
@@ -328,9 +330,9 @@ class XRNA:
             length = length_of_segment(index_pair)
             if length == 0:
                 continue
-            if shortest == None or length_of_segment(index_pair) < shortest:
+            if shortest is None or length_of_segment(index_pair) < shortest:
                 shortest = length
-        if shortest == None:
+        if shortest is None:
             return 0
         return shortest
 
@@ -377,11 +379,11 @@ class XRNA:
                 if this_intron == 0:
                     continue
                 if this_intron < 0:
-                    raise Exception("Intron with negative length on {0}".format(self))
-                if shortest == None or this_intron < shortest:
+                    raise Exception("Intron with negative length on " + self.identifier)
+                if shortest is None or this_intron < shortest:
                     shortest = this_intron
             last_end = index_pair[1]
-        if shortest == None:
+        if shortest is None:
             return 0
         return shortest
 
